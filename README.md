@@ -10,30 +10,30 @@
 + package.json meta文件
 + README.md 描述文件
 ## config.json格式
-		{
-		  "oss": {
-		    "region": "OSS region",
-		    "accessKeyID": "OSS accessKeyID",
-		    "accessKeySecret": "OSS accessKeySecret",
-		    "bucket": "日志服务存储Bucket",
-		    "prefix": "key前缀，如log (程序自动拼接日期)"
-		  },
-		  "server": {
-		    "port": http服务器监听端口
-		  },
-		  "mysql": {
-		    "host": "mysql主机",
-		    "port": mysql端口,
-		    "poolSize": 连接池大小,
-		    "database": "数据库名称",
-		    "username": "数据库账号",
-		    "password": "数据库密码",
-		    "tablePrefix": "表前缀（用来去不不同项目）"
-		  }
-		}
+				{
+				  "oss": {
+				    "region": "OSS region",
+				    "accessKeyID": "OSS accessKeyID",
+				    "accessKeySecret": "OSS accessKeySecret",
+				    "bucket": "日志服务存储Bucket",
+				    "prefix": "key前缀，如log (程序自动拼接日期)"
+				  },
+				  "server": {
+				    "port": http服务器监听端口
+				  },
+				  "mysql": {
+				    "host": "mysql主机",
+				    "port": mysql端口,
+				    "poolSize": 连接池大小,
+				    "database": "数据库名称",
+				    "username": "数据库账号",
+				    "password": "数据库密码",
+				    "tablePrefix": "表前缀（用来去不不同项目）"
+				  }
+				}
 #运行
-		npm install
-		npm run start
+				npm install
+				npm run start
 #单元测试
-		npm install -g mocha
-		mocha
+				npm install -g mocha
+				mocha
