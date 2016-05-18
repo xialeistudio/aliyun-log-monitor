@@ -20,6 +20,6 @@
   "replaceConsole": true,
   "levels": {
     "log_file": "WARN",
-    "console": "INFO"
+    "console": "TRACE"
   }
 }

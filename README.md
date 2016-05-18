@@ -5,7 +5,8 @@
 + lib 库文件目录
 + test 测试目录
 + config.json 配置文件（请自行创建） 
-+ index.js 入口文件
++ crond.js 计划任务
++ server.js http服务端
 + log4js.json log4j配置文件
 + package.json meta文件
 + README.md 描述文件
