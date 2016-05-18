@@ -12,7 +12,7 @@
 
 ## config.json格式
 
-```
+```javascript
 {
   "oss": {
     "region": "OSS region",
@@ -37,13 +37,13 @@
 ```
 
 #运行
-```
+```bash
 npm install
 npm run start
 ```
 
 #单元测试
-```
+```bash
 npm install -g mocha
 mocha
 ```
