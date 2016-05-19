@@ -221,16 +221,17 @@ function run() {
 					}
 					logger.console.trace('[oss] ' + downloaded + '/' + total + ' - ' + parseInt(downloaded * 100 / total) + '%');
 					//开始解压
-					fs.readFileAsync(localPath).then(function(data) {
-								//删除oss
-								return oss.remove(objectName).then(function() {
-									logger.console.trace('[object] remove ' + objectName);
-									return data;
-								}).catch(function(e) {
-									logger.console.error(e);
-									return data;
-								});
-							})
+					fs.readFileAsync(localPath)
+							//删除oss
+							// .then(function(data) {
+							// 	return oss.remove(objectName).then(function() {
+							// 		logger.console.trace('[object] remove ' + objectName);
+							// 		return data;
+							// 	}).catch(function(e) {
+							// 		logger.console.error(e);
+							// 		return data;
+							// 	});
+							// })
 							//处理为mysql数据
 							.then(function(data) {
 								var mysqlData = uncompressDataToMysqlData(data.toString(), yesterdayStr);
