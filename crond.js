@@ -6,7 +6,7 @@
 var database = require('./lib/_database');
 var logger = require('./lib/_logger');
 var oss = require('./lib/_oss');
-var snappy = require('./lib/_snappy');
+// var snappy = require('./lib/_snappy');
 var Moment = require('moment');
 var Promise = require('bluebird');
 var fs = require('fs');
