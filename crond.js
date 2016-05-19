@@ -189,88 +189,98 @@ function run() {
 	var downloadPath = __dirname + '/download';
 	var snappyPath = downloadPath + '/' + yesterdayStr;
 	//初始化下载目录
-	initPath(downloadPath)
-	//初始化子目录
-			.then(function() {
-				return initPath(snappyPath);
-			})
-			//下载snappy文件
-			.then(function() {
-				//下载
-				var ee = oss.download(snappyPath, {
-					'max-keys': 5,
-					'prefix': keyPrefix
-				});
-				var decoded = 0;
-				ee.on('list', function(list) {
-					if (list.objects !== undefined) {
-						logger.console.info('[object] should process ' + list.objects.length + ' files');
-					}
-					else {
-						logger.console.info('[object] not file to process');
-					}
-				});
-				ee.on('object', function(name, localPath, downloaded, total, objectName) {
-					if (name === null) {
-						decoded++;
-						logger.console.trace('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
-						if (decoded >= total) {
-							process.exit(0);
-						}
-						return;
-					}
-					logger.console.trace('[oss] ' + downloaded + '/' + total + ' - ' + parseInt(downloaded * 100 / total) + '%');
-					//开始解压
-					fs.readFileAsync(localPath)
-							//删除oss
-							// .then(function(data) {
-							// 	return oss.remove(objectName).then(function() {
-							// 		logger.console.trace('[object] remove ' + objectName);
-							// 		return data;
-							// 	}).catch(function(e) {
-							// 		logger.console.error(e);
-							// 		return data;
-							// 	});
-							// })
-							//处理为mysql数据
-							.then(function(data) {
-								var mysqlData = uncompressDataToMysqlData(data.toString(), yesterdayStr);
-								//合并处理
-								return mergeDbData(mysqlData);
-							}).catch(function(e) {
-						logger.console.error('[snappy] parse %s error: %s', localPath, e.message);
-					}).then(function() {
-						decoded++;
-						logger.console.info('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
-						if (decoded >= total) {
-							//全部处理完毕，入库
-							return saveToDb(dbData).then(function() {
-								return 'ok';
-							}).catch(function() {
-								return 'error';
-							}).then(function(result) {
-								logger.console.info('[mysql] save: ' + result);
-								return unlinkPath(snappyPath)
-										.then(function() {
-											logger.console.info('[clean] ' + snappyPath + ' success');
-											process.exit(0);
-										}).catch(function(e) {
-											logger.console.error('[clean] ' + snappyPath + ' error: ' + e.message);
-											process.exit(0);
-										});
+	return database().then(function(conn) {
+		return conn.queryAsync('DELETE FROM ' + config.mysql.tablePrefix + 'logs WHERE `date`=?', [yesterdayStr]).then(function(resp) {
+			logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
+			conn.release();
+			return initPath(downloadPath)
+			//初始化子目录
+					.then(function() {
+						return initPath(snappyPath);
+					})
+					//下载snappy文件
+					.then(function() {
+						//下载
+						var ee = oss.download(snappyPath, {
+							'max-keys': 1000,
+							'prefix': keyPrefix
+						});
+						var decoded = 0;
+						ee.on('list', function(list) {
+							if (list.objects !== undefined) {
+								logger.console.info('[object] should process ' + list.objects.length + ' files');
+							}
+							else {
+								logger.console.info('[object] not file to process');
+							}
+						});
+						ee.on('object', function(name, localPath, downloaded, total, objectName) {
+							if (name === null) {
+								decoded++;
+								logger.console.trace('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
+								if (decoded >= total) {
+									process.exit(0);
+								}
+								return;
+							}
+							logger.console.trace('[oss] ' + downloaded + '/' + total + ' - ' + parseInt(downloaded * 100 / total) + '%');
+							//开始解压
+							fs.readFileAsync(localPath)
+									//删除oss
+									// .then(function(data) {
+									// 	return oss.remove(objectName).then(function() {
+									// 		logger.console.trace('[object] remove ' + objectName);
+									// 		return data;
+									// 	}).catch(function(e) {
+									// 		logger.console.error(e);
+									// 		return data;
+									// 	});
+									// })
+									//处理为mysql数据
+									.then(function(data) {
+										var mysqlData = uncompressDataToMysqlData(data.toString(), yesterdayStr);
+										//合并处理
+										return mergeDbData(mysqlData);
+									}).catch(function(e) {
+								logger.console.error('[snappy] parse %s error: %s', localPath, e.message);
+							}).then(function() {
+								decoded++;
+								logger.console.info('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
+								if (decoded >= total) {
+									//全部处理完毕，入库
+									return saveToDb(dbData).then(function() {
+										return 'ok';
+									}).catch(function() {
+										return 'error';
+									}).then(function(result) {
+										logger.console.info('[mysql] save: ' + result);
+										return unlinkPath(snappyPath)
+												.then(function() {
+													logger.console.info('[clean] ' + snappyPath + ' success');
+													process.exit(0);
+												}).catch(function(e) {
+													logger.console.error('[clean] ' + snappyPath + ' error: ' + e.message);
+													process.exit(0);
+												});
+									});
+								}
 							});
-						}
+						});
+						ee.on('end', function() {
+							logger.console.trace('downloaded end');
+						});
+						ee.on('error', function(e) {
+							logger.console.error('downloaded error: ' + e.message);
+						});
+					})
+					.catch(function(e) {
+						logger.console.error('error: ' + e.message);
 					});
-				});
-				ee.on('end', function() {
-					logger.console.trace('downloaded end');
-				});
-				ee.on('error', function(e) {
-					logger.console.error('downloaded error: ' + e.message);
-				});
-			})
-			.catch(function(e) {
-				logger.console.error('error: ' + e.message);
-			});
+		}).catch(function(e) {
+			logger.console.error(e);
+		});
+	}).catch(function(e) {
+		logger.console.error(e);
+	});
 }
 run();
