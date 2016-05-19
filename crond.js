@@ -99,9 +99,9 @@ function uncompressDataToMysqlData(data, date) {
 			}
 			else {
 				record = needData[matchIndex];
-				record.averageTime = parseFloat((record.averageTime * record.requestCount + rtime) / record.requestCount).toFixed(3);
 				record.requestCount++;
 				record.totalTime += rtime;
+				record.averageTime = parseFloat(record.totalTime / record.requestCount).toFixed(3);
 				record.minTime = Math.min(record.minTime, rtime);
 				record.maxTime = Math.max(record.maxTime, rtime);
 				needData[matchIndex] = record;
@@ -179,6 +179,7 @@ function run() {
 	var moment = Moment();
 	//获取昨天日期
 	var yesterday = moment.subtract(1, 'days');
+	// var yesterday = moment;
 	var yesterdayStr = yesterday.format('YYYY-MM-DD');
 	var day = yesterday.format('DD');
 	var month = yesterday.format('MM');
@@ -201,8 +202,15 @@ function run() {
 					'prefix': keyPrefix
 				});
 				var decoded = 0;
-				logger.console.info('procesing');
-				ee.on('object', function(name, localPath, downloaded, total) {
+				ee.on('list', function(list) {
+					if (list.objects !== undefined) {
+						logger.console.info('[object] should process ' + list.objects.length + ' files');
+					}
+					else {
+						logger.console.info('[object] not file to process');
+					}
+				});
+				ee.on('object', function(name, localPath, downloaded, total, objectName) {
 					if (name === null) {
 						decoded++;
 						logger.console.trace('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
@@ -213,11 +221,22 @@ function run() {
 					}
 					logger.console.trace('[oss] ' + downloaded + '/' + total + ' - ' + parseInt(downloaded * 100 / total) + '%');
 					//开始解压
-					snappy.decodeFile(localPath).then(function(data) {
-						var mysqlData = uncompressDataToMysqlData(data, yesterdayStr);
-						//合并处理
-						return mergeDbData(mysqlData);
-					}).catch(function(e) {
+					fs.readFileAsync(localPath).then(function(data) {
+								//删除oss
+								return oss.remove(objectName).then(function() {
+									logger.console.trace('[object] remove ' + objectName);
+									return data;
+								}).catch(function(e) {
+									logger.console.error(e);
+									return data;
+								});
+							})
+							//处理为mysql数据
+							.then(function(data) {
+								var mysqlData = uncompressDataToMysqlData(data.toString(), yesterdayStr);
+								//合并处理
+								return mergeDbData(mysqlData);
+							}).catch(function(e) {
 						logger.console.error('[snappy] parse %s error: %s', localPath, e.message);
 					}).then(function() {
 						decoded++;
