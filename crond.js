@@ -34,28 +34,37 @@ function initPath(path) {
 	});
 }
 var dbData = [];//最终入库数据
-//url,requestCount,totalTime,averageTime,minTime,maxTime,date
+/**
+ * 数据入库
+ * @param mysqlData
+ * @returns {Array}
+ */
 function mergeDbData(mysqlData) {
 	if (dbData.length === 0) {
 		dbData = dbData.concat(mysqlData);
 	}
 	else {
-		dbData = dbData.map(function(dbItem) {
+		//检测mysqldata中的URL是否在dbdata中
+		mysqlData.forEach(function(mysqlItem) {
 			var isMatched = false;
-			mysqlData.forEach(function(mysqlItem) {
-				if (mysqlItem.url == dbItem.url) {
+			dbData.forEach(function(dbItem, index) {
+				if (dbItem[0] == mysqlItem[0]) {
 					isMatched = true;
-					//进行数据合并计算
-					dbItem.requestCount += mysqlItem.requestCount;
-					dbItem.totalTime += mysqlItem.totalTime;
-					dbItem.averageTime = parseFloat((dbItem.totalTime + mysqlItem.totalTime) / dbItem.requestCount).toFixed(3);
-					dbItem.minTime = Math.min(dbItem.minTime, mysqlItem.minTime);
-					dbItem.maxTime = Math.max(dbItem.maxTime, mysqlItem.maxTime);
+					//合并数据
+					dbItem[1] += mysqlItem[1];
+					dbItem[2] += mysqlItem[2];
+					dbItem[3] = parseFloat((dbItem[2] / dbItem[1]).toFixed(3));
+					dbItem[4] = Math.min(dbItem[4], mysqlItem[4]);
+					dbItem[5] = Math.max(dbItem[5], mysqlItem[5]);
+					dbData[index] = dbItem;
 				}
-			});
-			return dbItem;
+				if (!isMatched) {
+					dbData.push(mysqlItem);
+				}
+			})
 		});
 	}
+	return dbData;
 }
 /**
  * 解压出来的数据转换为Mysql数组
@@ -67,18 +76,18 @@ function uncompressDataToMysqlData(data, date) {
 	var list = data.split('\n');
 	var needData = [];
 	list.forEach(function(line) {
-		if (!line) {
+		if (line.length === 0) {
 			return;
 		}
 		try {
 			var json = JSON.parse(line);
 			var url = json.url;
 			var rtime = parseFloat(json.rtime);
-			var status = json.status;
+			var status = parseInt(json.status);
 			//检测是否存在
 			var isMatched = false, matchIndex = -1;
 			needData.forEach(function(item, index) {
-				if (getUrlPattern(item.url) === getUrlPattern(url)) {
+				if (item.url === getUrlPattern(url)) {
 					isMatched = true;
 					matchIndex = index;
 				}
@@ -121,14 +130,13 @@ function uncompressDataToMysqlData(data, date) {
 }
 /**
  * 数据入库
- * @param mysqlData
  * @returns {*}
  */
-function saveToDb(mysqlData) {
+function saveToDb() {
 	var sql = 'INSERT INTO ' + config.mysql.tablePrefix + 'logs (url,requestCount,totalTime,averageTime,minTime,maxTime,date,status) VALUES ?';
 	//MySQL批量插入
 	return database().then(function(conn) {
-		return conn.queryAsync(sql, [mysqlData]).then(function(res) {
+		return conn.queryAsync(sql, [dbData]).then(function(res) {
 			conn.release();
 			return res;
 		}).catch(function(e) {
@@ -187,100 +195,96 @@ function run() {
 	var keyPrefix = config.oss.prefix + '/' + year + '/' + month + '/' + day;
 	logger.console.info('download ' + yesterdayStr + ' logs,use prefix: ' + keyPrefix);
 	var downloadPath = __dirname + '/download';
-	var snappyPath = downloadPath + '/' + yesterdayStr;
+	var currentDownloadPath = downloadPath + '/' + yesterdayStr;
 	//初始化下载目录
 	return database().then(function(conn) {
 		return conn.queryAsync('DELETE FROM ' + config.mysql.tablePrefix + 'logs WHERE `date`=?', [yesterdayStr]).then(function(resp) {
-			logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
-			conn.release();
-			return initPath(downloadPath)
-			//初始化子目录
-					.then(function() {
-						return initPath(snappyPath);
-					})
-					//下载snappy文件
-					.then(function() {
-						//下载
-						var ee = oss.download(snappyPath, {
-							'max-keys': 1000,
-							'prefix': keyPrefix
-						});
-						var decoded = 0;
-						ee.on('list', function(list) {
-							if (list.objects !== undefined) {
-								logger.console.info('[object] should process ' + list.objects.length + ' files');
-							}
-							else {
-								logger.console.info('[object] not file to process');
-							}
-						});
-						ee.on('object', function(name, localPath, downloaded, total, objectName) {
-							if (name === null) {
-								decoded++;
-								logger.console.trace('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
-								if (decoded >= total) {
-									process.exit(0);
-								}
-								return;
-							}
-							logger.console.trace('[oss] ' + downloaded + '/' + total + ' - ' + parseInt(downloaded * 100 / total) + '%');
-							//开始解压
-							fs.readFileAsync(localPath)
-									//删除oss
-									// .then(function(data) {
-									// 	return oss.remove(objectName).then(function() {
-									// 		logger.console.trace('[object] remove ' + objectName);
-									// 		return data;
-									// 	}).catch(function(e) {
-									// 		logger.console.error(e);
-									// 		return data;
-									// 	});
-									// })
-									//处理为mysql数据
-									.then(function(data) {
-										var mysqlData = uncompressDataToMysqlData(data.toString(), yesterdayStr);
-										//合并处理
-										return mergeDbData(mysqlData);
-									}).catch(function(e) {
-								logger.console.error('[snappy] parse %s error: %s', localPath, e.message);
-							}).then(function() {
-								decoded++;
-								logger.console.info('[mysql] ' + decoded + '/' + total + ' - ' + parseInt(decoded * 100 / total) + '%');
-								if (decoded >= total) {
-									//全部处理完毕，入库
-									return saveToDb(dbData).then(function() {
-										return 'ok';
-									}).catch(function() {
-										return 'error';
-									}).then(function(result) {
-										logger.console.info('[mysql] save: ' + result);
-										return unlinkPath(snappyPath)
+					logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
+					conn.release();
+				})
+				.catch(function(e) {
+					logger.console.error('[mysql] remove history rows fail:%s', e.message);
+				})
+				//创建目录
+				.then(function() {
+					return initPath(downloadPath).then(initPath(currentDownloadPath));
+				})
+				.then(function() {
+					var emitter = oss.download(currentDownloadPath, {
+						'max-keys': 3,
+						prefix: keyPrefix
+					});
+					//已经处理的文件数
+					var processed = 0, total = 0;
+					emitter.on('listEmpty', function() {
+						console.info('listEmpty triggered');
+						process.exit(0);
+					});
+					emitter.on('listSuccess', function(result) {
+						total = result.objects.length;
+					});
+					emitter.on('objectSuccess', function(objectName, localPath, downloaded, total) {
+						//读取文件，逐行
+						fs.readFileAsync(localPath)
+								//文件数据
+								.then(function(buffer) {
+									return Promise.resolve(buffer.toString());
+								})
+								//转化为mysql数组
+								.then(function(data) {
+									return Promise.resolve(uncompressDataToMysqlData(data, yesterdayStr));
+								})
+								//合并历史数据
+								.then(function(rows) {
+									return Promise.resolve(mergeDbData(rows));
+								})
+								//检测完成
+								.then(function() {
+									processed++;
+									return Promise.resolve(processed === total);
+								})
+								//入库
+								.then(function(isCompleted) {
+									if (isCompleted) {
+										return saveToDb()//打印入库结果
+												.then(function(result) {
+													console.info('[db] ' + JSON.stringify(result));
+													return Promise.resolve();
+												})
+												//删除下载目录
 												.then(function() {
-													logger.console.info('[clean] ' + snappyPath + ' success');
-													process.exit(0);
-												}).catch(function(e) {
-													logger.console.error('[clean] ' + snappyPath + ' error: ' + e.message);
+													return unlinkPath(currentDownloadPath);
+												})
+												//退出进程
+												.then(function() {
+													console.info('process exit');
 													process.exit(0);
 												});
-									});
-								}
-							});
-						});
-						ee.on('end', function() {
-							logger.console.trace('downloaded end');
-						});
-						ee.on('error', function(e) {
-							logger.console.error('downloaded error: ' + e.message);
-						});
-					})
-					.catch(function(e) {
-						logger.console.error('error: ' + e.message);
+									}
+								})
 					});
-		}).catch(function(e) {
-			logger.console.error(e);
-		});
-	}).catch(function(e) {
-		logger.console.error(e);
+					emitter.on('objectError', function(e, downloaded, total) {
+						processed++;
+						if (processed === total) {
+							//入库
+							saveToDb()
+							//打印入库结果
+									.then(function(result) {
+										console.info('[db] ' + JSON.stringify(result));
+										return Promise.resolve();
+									})
+									//删除下载目录
+									.then(function() {
+										return unlinkPath(currentDownloadPath);
+									})
+									//退出进程
+									.then(function() {
+										console.info('process exit');
+										process.exit(0);
+									});
+						}
+					});
+				});
 	});
 }
 run();
