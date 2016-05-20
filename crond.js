@@ -14,6 +14,7 @@ var config = require('./config.json');
 var _ = require('underscore');
 var URL = require('url');
 Promise.promisifyAll(fs);
+var lineReader = require('line-reader');
 /**
  * 初始化目录
  * @param path
@@ -41,92 +42,41 @@ var dbData = [];//最终入库数据
  */
 function mergeDbData(mysqlData) {
 	if (dbData.length === 0) {
-		dbData = dbData.concat(mysqlData);
+		dbData.push(mysqlData);
 	}
 	else {
 		//检测mysqldata中的URL是否在dbdata中
-		mysqlData.forEach(function(mysqlItem) {
-			var isMatched = false;
-			dbData.forEach(function(dbItem, index) {
-				if (dbItem[0] == mysqlItem[0]) {
-					isMatched = true;
-					//合并数据
-					dbItem[1] += mysqlItem[1];
-					dbItem[2] += mysqlItem[2];
-					dbItem[3] = parseFloat((dbItem[2] / dbItem[1]).toFixed(3));
-					dbItem[4] = Math.min(dbItem[4], mysqlItem[4]);
-					dbItem[5] = Math.max(dbItem[5], mysqlItem[5]);
-					dbData[index] = dbItem;
-				}
-				if (!isMatched) {
-					dbData.push(mysqlItem);
-				}
-			})
+		var isMatched = false;
+		dbData.forEach(function(dbItem, index) {
+			if (dbItem[0] == mysqlData[0]) {
+				//合并数据
+				isMatched = true;
+				dbItem[1] += mysqlData[1];
+				dbItem[2] += mysqlData[2];
+				dbItem[3] = parseFloat((dbItem[2] / dbItem[1]).toFixed(3));
+				dbItem[4] = Math.min(dbItem[4], mysqlData[4]);
+				dbItem[5] = Math.max(dbItem[5], mysqlData[5]);
+				dbData[index] = dbItem;
+			}
 		});
+		if (!isMatched) {
+			dbData.push(mysqlData);
+		}
 	}
 	return dbData;
 }
 /**
- * 解压出来的数据转换为Mysql数组
- * @param data
+ * 解压出来的数据转换为Mysql数组【单行】
+ * @param line
  * @param date
  * @returns {Array}
  */
-function uncompressDataToMysqlData(data, date) {
-	var list = data.split('\n');
-	var needData = [];
-	list.forEach(function(line) {
-		if (line.length === 0) {
-			return;
-		}
-		try {
-			var json = JSON.parse(line);
-			var url = json.url;
-			var rtime = parseFloat(json.rtime);
-			var status = parseInt(json.status);
-			//检测是否存在
-			var isMatched = false, matchIndex = -1;
-			needData.forEach(function(item, index) {
-				if (item.url === getUrlPattern(url)) {
-					isMatched = true;
-					matchIndex = index;
-				}
-			});
-			var record;
-			if (!isMatched) {
-				record = {
-					url: getUrlPattern(url),
-					requestCount: 1,
-					totalTime: rtime,
-					averageTime: rtime,
-					minTime: rtime,
-					maxTime: rtime,
-					date: date,
-					status: status
-				};
-				needData.push(record);
-			}
-			else {
-				record = needData[matchIndex];
-				record.requestCount++;
-				record.totalTime += rtime;
-				record.averageTime = parseFloat(record.totalTime / record.requestCount).toFixed(3);
-				record.minTime = Math.min(record.minTime, rtime);
-				record.maxTime = Math.max(record.maxTime, rtime);
-				needData[matchIndex] = record;
-			}
-		}
-		catch (e) {
-			logger.console.error('[json] parse %s error: %s', line, e.message);
-		}
-	});
-	//mysql数据处理
-	var mysqlData = [];
-	needData.forEach(function(item) {
-		var row = [getUrlPattern(item.url), item.requestCount, item.totalTime, item.averageTime, item.minTime, item.maxTime, item.date, item.status];
-		mysqlData.push(row);
-	});
-	return mysqlData;
+function uncompressDataToMysqlData(line, date) {
+	var json = JSON.parse(line);
+	var url = json.url;
+	var rtime = parseFloat(json.rtime);
+	var status = parseInt(json.status);
+	return [getUrlPattern(url), 1, rtime, rtime, rtime, rtime, date, status];
 }
 /**
  * 数据入库
@@ -181,6 +131,16 @@ function unlinkPath(path) {
 	});
 }
 /**
+ * 内存情况
+ */
+var showMem = function() {
+	var mem = process.memoryUsage();
+	var format = function(bytes) {
+		return (bytes / 1024 / 1024).toFixed(2) + 'MB';
+	};
+	console.log('[memory] heapTotal: %s heapUsed: %s rss %s', format(mem.heapTotal), format(mem.heapUsed), format(mem.rss));
+};
+/**
  * 运行
  */
 function run() {
@@ -211,11 +171,11 @@ function run() {
 				})
 				.then(function() {
 					var emitter = oss.download(currentDownloadPath, {
-						'max-keys': 3,
+						'max-keys': 10,
 						prefix: keyPrefix
 					});
 					//已经处理的文件数
-					var processed = 0, total = 0;
+					var processed = 0, total = 0, readed = 0;
 					emitter.on('listEmpty', function() {
 						console.info('listEmpty triggered');
 						process.exit(0);
@@ -224,23 +184,31 @@ function run() {
 						total = result.objects.length;
 					});
 					emitter.on('objectSuccess', function(objectName, localPath, downloaded, total) {
+						logger.console.trace('[downloader] %d/%d - %d%%', downloaded, total, parseInt(downloaded * 100 / total));
 						//读取文件，逐行
-						fs.readFileAsync(localPath)
-								//文件数据
-								.then(function(buffer) {
-									return Promise.resolve(buffer.toString());
-								})
-								//转化为mysql数组
-								.then(function(data) {
-									return Promise.resolve(uncompressDataToMysqlData(data, yesterdayStr));
-								})
-								//合并历史数据
-								.then(function(rows) {
-									return Promise.resolve(mergeDbData(rows));
-								})
-								//检测完成
+						var promise = new Promise(function(resolve, reject) {
+							lineReader.eachLine(localPath, function(line, last) {
+								//处理行数据
+								try {
+									var lineRows = uncompressDataToMysqlData(line, yesterdayStr);
+									mergeDbData(lineRows);
+								}
+								catch (e) {
+									console.error(e.message);
+								}
+								if (last) {
+									readed++;
+									logger.console.info('[reader] %d/%d - %d%%', readed, total, parseInt(readed * 100 / total));
+									resolve();
+								}
+							});
+						});
+						promise
+						//检测完成
 								.then(function() {
+									showMem();
 									processed++;
+									logger.console.warn('[processor] %d/%d - %d%%', readed, total, parseInt(readed * 100 / total));
 									return Promise.resolve(processed === total);
 								})
 								//入库
@@ -248,7 +216,7 @@ function run() {
 									if (isCompleted) {
 										return saveToDb()//打印入库结果
 												.then(function(result) {
-													console.info('[db] ' + JSON.stringify(result));
+													console.info('[db] rows:%d', result.affectedRows);
 													return Promise.resolve();
 												})
 												//删除下载目录
@@ -264,7 +232,9 @@ function run() {
 								})
 					});
 					emitter.on('objectError', function(e, downloaded, total) {
+						showMem();
 						processed++;
+						logger.console.warn('[processor] %d/%d - %d%%', readed, total, parseInt(readed * 100 / total));
 						if (processed === total) {
 							//入库
 							saveToDb()
@@ -279,7 +249,6 @@ function run() {
 									})
 									//退出进程
 									.then(function() {
-										console.info('process exit');
 										process.exit(0);
 									});
 						}
