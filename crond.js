@@ -171,7 +171,7 @@ function run() {
 				})
 				.then(function() {
 					var emitter = oss.download(currentDownloadPath, {
-						'max-keys': 10,
+						'max-keys': 1000,
 						prefix: keyPrefix
 					});
 					//已经处理的文件数
