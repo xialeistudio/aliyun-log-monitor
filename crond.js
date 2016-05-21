@@ -87,10 +87,10 @@ function saveToDb() {
 	//MySQL批量插入
 	return database().then(function(conn) {
 		return conn.queryAsync(sql, [dbData]).then(function(res) {
-			conn.release();
+			conn.destroy();
 			return res;
 		}).catch(function(e) {
-			conn.release();
+			conn.destroy();
 			throw e;
 		});
 	});
@@ -160,7 +160,7 @@ function run() {
 	return database().then(function(conn) {
 		return conn.queryAsync('DELETE FROM ' + config.mysql.tablePrefix + 'logs WHERE `date`=?', [yesterdayStr]).then(function(resp) {
 					logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
-					conn.release();
+					conn.destroy();
 				})
 				.catch(function(e) {
 					logger.console.error('[mysql] remove history rows fail:%s', e.message);
