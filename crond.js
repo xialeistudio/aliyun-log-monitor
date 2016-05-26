@@ -76,7 +76,7 @@ function uncompressDataToMysqlData(line, date) {
 	var url = json.url;
 	var rtime = parseFloat(json.rtime);
 	var status = parseInt(json.status);
-	return [getUrlPattern(url), 1, rtime, rtime, rtime, rtime, date, status];
+	return [getUrlPattern(url), 1, rtime || 0, rtime || 0, rtime || 0, rtime || 0, date, status];
 }
 /**
  * 数据入库
@@ -159,9 +159,9 @@ function run() {
 	//初始化下载目录
 	return database().then(function(conn) {
 		return conn.queryAsync('DELETE FROM ' + config.mysql.tablePrefix + 'logs WHERE `date`=?', [yesterdayStr]).then(function(resp) {
-					logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
-					conn.destroy();
-				})
+			logger.console.info('[mysql] remove ' + yesterdayStr + ' ' + resp.affectedRows + ' rows');
+			conn.destroy();
+		})
 				.catch(function(e) {
 					logger.console.error('[mysql] remove history rows fail:%s', e.message);
 				})
