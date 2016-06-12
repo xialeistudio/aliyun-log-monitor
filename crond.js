@@ -144,10 +144,10 @@ var showMem = function() {
  * 运行
  */
 function run() {
+	var argv = require('yargs').demand(['date']).default({date: 1}).describe({date: '前几天'}).argv;
 	var moment = Moment();
 	//获取昨天日期
-	var yesterday = moment.subtract(1, 'days');
-	// var yesterday = moment;
+	var yesterday = moment.subtract(argv.date, 'days');
 	var yesterdayStr = yesterday.format('YYYY-MM-DD');
 	var day = yesterday.format('DD');
 	var month = yesterday.format('MM');
