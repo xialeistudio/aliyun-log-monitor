@@ -114,8 +114,11 @@ function getUrlPattern(url) {
 
 function unlinkAllExcludPath(path, dirname) {
 	var exec = require('child_process').exec, child;
+	var shell = 'cd '+path+' && rm -rf `ls |egrep -v ' + dirname + '`';
+	console.log(shell);
+
 	return new Promise(function(resolve, reject) {
-		child = exec('rm -rf `ls '+path+'|egrep -v ' + dirname + '`', function(err, out) {
+		child = exec(shell, function(err, out) {
 			if (err) {
 				reject(err);
 			}
@@ -136,27 +139,35 @@ var showMem = function() {
 	console.log('[memory] heapTotal: %s heapUsed: %s rss %s', format(mem.heapTotal), format(mem.heapUsed), format(mem.rss));
 };
 function tongji(fileList, yesterdayStr) {
+	console.log('Tongji Ready');
 	var readed = 0;
 	var total = fileList.length;
 	//读取文件，逐行
 	var readFile = function() {
-		var filePath = fileList.pop();
+		var filePath = fileList.shift();
 		var readedLine = 0;
 		var promise = new Promise(function(resolve, reject) {
-			lineReader.eachLine(filePath, function(line, last) {
-				//处理行数据
-				try {
-					var lineRows = uncompressDataToMysqlData(line, yesterdayStr);
-					mergeDbData(lineRows);
-					readedLine++;
-				}
-				catch (e) {
-					console.error(e.message);
-				}
-				if (last) {
-					resolve(readedLine);
-				}
-			});
+			try {
+				lineReader.eachLine(filePath, function(line, last) {
+					//处理行数据
+					try {
+						var lineRows = uncompressDataToMysqlData(line, yesterdayStr);
+						mergeDbData(lineRows);
+						readedLine++;
+					}
+					catch (e) {
+						// console.error(filePath+e.message);
+					}
+					if (last) {
+						// console.error(filePath+'---LAST');
+						resolve(readedLine);
+					}
+				});
+			}
+			catch(e){
+				resolve(readedLine);
+				console.error(filePath+e.message);
+			}
 		});
 		return promise;
 	};
@@ -180,13 +191,21 @@ function tongji(fileList, yesterdayStr) {
 					logger.console.info('[reader] Line:%d (%d/%d)', readedLine, readed, total);
 					// console.log(dbData.length);
 					checkProess();
+				}).catch(function(e){
+					logger.console.info('[reader] Err:%s', e);
+					readed++;
+					checkProess();
 				});
+			}else{
+				console.log('over');
 			}
 		}
 	};
 	checkProess();
-	checkProess();
-	checkProess();
+	// checkProess();
+	// checkProess();
+	// checkProess();
+	// checkProess();
 }
 /**
  * 运行
@@ -239,7 +258,7 @@ function run() {
 					});
 					emitter.on('nextDownload', function() {
 						if (processed < total) {
-							logger.console.info('[osslist] begin: %d ', processed);
+							// logger.console.info('[osslist] begin: %d ', processed);
 							var object = logList[processed];
 							processed++;
 							emitter.emit('_download', object);
@@ -268,7 +287,7 @@ function run() {
 						}
 					});
 					emitter.on('objectError', function(e, object) {
-						logger.console.error('[processor] %d/%d - %d%%', downloaded, total, parseInt(readed * 100 / total));
+						logger.console.error('[processor] %d/%d - %d%% - %s', downloaded, total, parseInt(readed * 100 / total), e.message);
 						if (!object.tryed) {
 							emitter.emit('_download', object);
 						}
