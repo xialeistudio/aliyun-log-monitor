@@ -4,7 +4,9 @@
   "description": "aliyun log http monitor",
   "main": "index.js",
   "scripts": {
-    "start": "node crond.js"
+    "start": "node crond.js",
+    "web": "node web.js",
+    "path": "node path.js"
   },
   "repository": {
     "type": "git",
