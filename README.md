@@ -1,6 +1,6 @@
-#阿里云日志服务web服务端
+# 阿里云日志服务web服务端
 将接入阿里云的Ngin/Apache日志显示在web上
-#目录结构
+# 目录结构
 + download 下载目录
 + lib 库文件目录
 + test 测试目录
@@ -32,18 +32,18 @@
     "database": "数据库名称",
     "username": "数据库账号",
     "password": "数据库密码",
-    "tablePrefix": "表前缀（用来去不不同项目）"
+    "tablePrefix": "表前缀（用来区分不同项目）"
   }
 }
 ```
 
-#运行
+# 运行
 ```bash
 npm install
 npm run start
 ```
 
-#单元测试
+# 单元测试
 ```bash
 npm install -g mocha
 mocha
